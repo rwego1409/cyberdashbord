@@ -1,0 +1,166 @@
+services:
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - .env
+    ports:
+      - "8001:8000"
+    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import sys, urllib.request; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/api/v1/health/').status == 200 else sys.exit(1)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    volumes:
+      - ./backend:/app
+
+  backend-worker:
+    build:
+      context: ./backend
+    env_file:
+      - .env
+    command: celery -A config worker -l info
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+
+  backend-beat:
+    build:
+      context: ./backend
+    env_file:
+      - .env
+    command: celery -A config beat -l info
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    build:
+      context: ./frontend
+    env_file:
+      - .env
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: "http://localhost:8001/api/v1"
+      INTERNAL_API_BASE_URL: "http://backend:8000/api/v1"
+    ports:
+      - "3001:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+
+  scrapers:
+    build:
+      context: ./scrapers
+    profiles: ["jobs"]
+    env_file:
+      - .env
+    environment:
+      TCIO_API_BASE_URL: "http://backend:8000/api/v1"
+      BACKEND_INGEST_URL: "http://backend:8000/api/v1/osint/events/ingest/"
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./scrapers:/app
+
+  scrapers-scheduler:
+    build:
+      context: ./scrapers
+    profiles: ["jobs"]
+    env_file:
+      - .env
+    environment:
+      ENABLE_BACKEND_INGEST: "true"
+      BACKEND_INGEST_URL: "http://backend:8000/api/v1/osint/events/ingest/"
+      SCRAPER_RUN_ONCE: "false"
+    command: python src/scheduler.py
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./scrapers:/app
+
+  ai-engine:
+    build:
+      context: ./ai-engine
+    profiles: ["jobs"]
+    env_file:
+      - .env
+    environment:
+      TCIO_API_BASE_URL: "http://backend:8000/api/v1"
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./ai-engine:/app
+
+  scanner-orchestrator:
+    build:
+      context: ./scanner-orchestrator
+    profiles: ["jobs"]
+    env_file:
+      - .env
+    environment:
+      TCIO_API_BASE_URL: "http://backend:8000/api/v1"
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./scanner-orchestrator:/app
+
+  automation:
+    build:
+      context: ./automation
+    profiles: ["jobs"]
+    env_file:
+      - .env
+    environment:
+      TCIO_API_BASE_URL: "http://backend:8000/api/v1"
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./automation:/app
+
+  contracts:
+    build:
+      context: ./contracts
+    profiles: ["jobs"]
+    env_file:
+      - .env
+    environment:
+      TCIO_API_BASE_URL: "http://backend:8000/api/v1"
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./contracts:/app

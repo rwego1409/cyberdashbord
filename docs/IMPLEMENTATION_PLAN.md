@@ -1,0 +1,86 @@
+# TCIO Implementation Baseline
+
+## Implemented Foundations
+- Framework scaffolding generated with official tools (`django-admin`, `manage.py startapp`, `create-next-app`, `npm init`).
+- Versioned API surface under `/api/v1/`.
+- UI modules scaffolded: dashboard, threat map, malware, exposure, regional, alerts.
+- Service stubs created for AI engine, scanner orchestrator, automation, contracts gateway.
+- Smart-contract stack initialized with Hardhat and first authorization registry contract.
+- Real backend models + migrations for:
+  - organizations/profiles
+  - consent grants
+  - assets, scan jobs, scan findings
+  - OSINT events
+  - alert rules/events
+  - audit logs
+  - regional risk snapshots
+- Consent-gated scan API flow implemented:
+  - `POST /api/v1/consent/grants/`
+  - `POST /api/v1/scans/jobs/`
+- Scanner orchestration API flow implemented:
+  - `GET /api/v1/scans/jobs/list/`
+  - `POST /api/v1/scans/jobs/reserve/`
+  - `POST /api/v1/scans/jobs/process-once/`
+  - `POST /api/v1/scans/jobs/{job_id}/complete/`
+- Auth and role-guarded mutation flow implemented:
+  - `POST /api/v1/authn/bootstrap/`
+  - `POST /api/v1/authn/token/`
+  - role enforcement on consent/scans/osint ingest/alerts dispatch/snapshot writes
+- Alert operations implemented:
+  - `POST /api/v1/alerts/dispatch/`
+  - `POST /api/v1/alerts/{alert_id}/ack/`
+- Analytics snapshot operations implemented:
+  - `GET /api/v1/analytics/snapshots/`
+  - `POST /api/v1/analytics/snapshots/ingest/`
+  - `POST /api/v1/analytics/snapshots/generate/`
+- Consent listing and audit APIs implemented:
+  - `GET /api/v1/consent/grants/list/`
+  - `GET /api/v1/audit/logs/`
+- Frontend dashboard wired with operations panel for:
+  - creating consent grants
+  - queuing scan jobs
+  - processing queued jobs
+  - dispatching alerts
+  - generating snapshots
+  - viewing recent job queue and findings counts
+- Frontend modules wired:
+  - auth page (bootstrap + token)
+  - alerts page (ack actions)
+  - threat map/events table
+  - exposure jobs table
+  - regional snapshots table
+- OSINT ingestion endpoint implemented:
+  - `POST /api/v1/osint/events/ingest/`
+- Scraper collectors implemented for:
+  - TZ-CERT
+  - AbuseIPDB (API key required)
+  - OTX (API key required)
+  - NVD
+  - ACLED (key + email required)
+- OSINT source-health endpoint implemented:
+  - `GET /api/v1/osint/sources-health/` (configured/missing env + feed event counts)
+- Queue-style async pipeline implemented with Celery + Redis:
+  - worker task `scans.process_queued_scan_jobs`
+  - worker task `alerts.dispatch_open_alerts`
+  - worker task `analytics.generate_regional_snapshots`
+  - scheduler via Celery Beat
+- Scan async trigger endpoint implemented:
+  - `POST /api/v1/scans/jobs/process-async/`
+- Scraper periodic scheduler implemented with retry + dead-letter output:
+  - `scrapers/src/scheduler.py`
+  - dead-letter file: `scrapers/data/dead_letters.jsonl`
+- Scanner adapters improved:
+  - `nmap` live command parsing
+  - `openvas` optional live API mode with fallback
+  - `vulners` optional live API mode with fallback
+- Enforcement tests added for:
+  - consent validity window
+  - scanner-type authorization
+  - consent scope/IP range enforcement
+  - OSINT source-health response shape
+
+## Next Coding Targets
+1. Add JWT-specific flow (currently TokenAuth + role checks are in place).
+2. Extend OpenVAS adapter with first-party Greenbone protocol client (if deployment has GMP access).
+3. Add CI pipeline for automated test/lint/verification runs in pull requests.
+4. Add signed report generation and immutable storage options for compliance exports.

@@ -1,0 +1,14 @@
+.DS_Store
+Thumbs.db
+.env
+.env.local
+__pycache__/
+*.pyc
+*.sqlite3
+.venv/
+venv/
+node_modules/
+.next/
+dist/
+coverage/
+

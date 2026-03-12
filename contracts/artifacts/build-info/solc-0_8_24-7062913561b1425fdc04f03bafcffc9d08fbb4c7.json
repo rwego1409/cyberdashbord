@@ -1,0 +1,35 @@
+{
+  "_format": "hh3-sol-build-info-1",
+  "id": "solc-0_8_24-7062913561b1425fdc04f03bafcffc9d08fbb4c7",
+  "solcVersion": "0.8.24",
+  "solcLongVersion": "0.8.24+commit.e11b9ed9",
+  "userSourceNameMap": {
+    "contracts/AuthorizationRegistry.sol": "project/contracts/AuthorizationRegistry.sol"
+  },
+  "input": {
+    "language": "Solidity",
+    "settings": {
+      "evmVersion": "shanghai",
+      "outputSelection": {
+        "*": {
+          "": [
+            "ast"
+          ],
+          "*": [
+            "abi",
+            "evm.bytecode",
+            "evm.deployedBytecode",
+            "evm.methodIdentifiers",
+            "metadata"
+          ]
+        }
+      },
+      "remappings": []
+    },
+    "sources": {
+      "project/contracts/AuthorizationRegistry.sol": {
+        "content": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.24;\n\ncontract AuthorizationRegistry {\n    struct Consent {\n        address requester;\n        string target;\n        uint256 validUntil;\n    }\n\n    mapping(bytes32 => Consent) public consents;\n\n    event ConsentGranted(bytes32 indexed consentId, address indexed requester, string target, uint256 validUntil);\n\n    function grantConsent(bytes32 consentId, string calldata target, uint256 validUntil) external {\n        require(validUntil > block.timestamp, \"validUntil must be future\");\n        consents[consentId] = Consent(msg.sender, target, validUntil);\n        emit ConsentGranted(consentId, msg.sender, target, validUntil);\n    }\n\n    function isConsentValid(bytes32 consentId) external view returns (bool) {\n        Consent memory consent = consents[consentId];\n        return consent.requester != address(0) && consent.validUntil >= block.timestamp;\n    }\n}\n\n"
+      }
+    }
+  }
+}
