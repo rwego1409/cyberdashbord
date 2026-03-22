@@ -1,8 +1,11 @@
 import os
 import random
 import shutil
+import socket
+import ssl
 import subprocess
 import xml.etree.ElementTree as ET
+from html import escape
 from typing import Any
 
 import requests
@@ -138,10 +141,15 @@ def _fallback_nmap_findings(target: str, reason: str) -> list[dict[str, Any]]:
 
 
 def _run_openvas_findings(target: str) -> list[dict[str, Any]]:
+    gmp_findings, gmp_error = _run_openvas_gmp_findings(target)
+    if gmp_findings:
+        return gmp_findings
+
     base_url = os.getenv("OPENVAS_API_URL", "").strip()
     token = os.getenv("OPENVAS_API_TOKEN", "").strip()
     if not base_url or not token:
-        return _fallback_openvas_findings(target, "OPENVAS_API_URL/OPENVAS_API_TOKEN not configured")
+        gmp_note = f"; gmp_error={gmp_error}" if gmp_error else ""
+        return _fallback_openvas_findings(target, f"OPENVAS_API_URL/OPENVAS_API_TOKEN not configured{gmp_note}")
 
     endpoint = f"{base_url.rstrip('/')}/scan"
     try:
@@ -178,6 +186,134 @@ def _run_openvas_findings(target: str) -> list[dict[str, Any]]:
     if findings:
         return findings
     return _fallback_openvas_findings(target, "openvas returned no findings")
+
+
+def _run_openvas_gmp_findings(target: str) -> tuple[list[dict[str, Any]], str | None]:
+    host = os.getenv("OPENVAS_GMP_HOST", "").strip()
+    username = os.getenv("OPENVAS_GMP_USERNAME", "").strip()
+    password = os.getenv("OPENVAS_GMP_PASSWORD", "").strip()
+    task_id = os.getenv("OPENVAS_GMP_TASK_ID", "").strip()
+    port = int(os.getenv("OPENVAS_GMP_PORT", "9390"))
+
+    if not host or not username or not password or not task_id:
+        return [], "OPENVAS_GMP_HOST/OPENVAS_GMP_USERNAME/OPENVAS_GMP_PASSWORD/OPENVAS_GMP_TASK_ID not configured"
+
+    try:
+        with socket.create_connection((host, port), timeout=20) as sock:
+            context = ssl.create_default_context()
+            with context.wrap_socket(sock, server_hostname=host) as tls_sock:
+                auth_xml = (
+                    "<authenticate>"
+                    "<credentials>"
+                    f"<username>{escape(username)}</username>"
+                    f"<password>{escape(password)}</password>"
+                    "</credentials>"
+                    "</authenticate>"
+                )
+                auth_response = _gmp_exchange(tls_sock, auth_xml)
+                if not auth_response.tag.endswith("authenticate_response"):
+                    return [], f"unexpected auth response tag: {auth_response.tag}"
+                status = str(auth_response.attrib.get("status", ""))
+                if not status.startswith("2"):
+                    return [], f"gmp auth failed status={status}"
+
+                task_xml = f'<get_tasks task_id="{escape(task_id)}" details="1"/>'
+                task_response = _gmp_exchange(tls_sock, task_xml)
+                report_node = task_response.find(".//task/last_report/report")
+                report_id = report_node.attrib.get("id") if report_node is not None else None
+                if not report_id:
+                    return [], "gmp task response did not include last report id"
+
+                report_xml = f'<get_report report_id="{escape(report_id)}" details="1"/>'
+                report_response = _gmp_exchange(tls_sock, report_xml)
+                findings = _parse_gmp_report_findings(report_response, target)
+                if findings:
+                    return findings, None
+                return [], "gmp report had no results"
+    except Exception as exc:  # noqa: BLE001
+        return [], str(exc)
+
+
+def _gmp_exchange(sock: ssl.SSLSocket, request_xml: str) -> ET.Element:
+    sock.sendall(request_xml.encode("utf-8"))
+    chunks: list[bytes] = []
+    sock.settimeout(20)
+    while True:
+        chunk = sock.recv(65536)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        try:
+            combined = b"".join(chunks)
+            return ET.fromstring(combined.decode("utf-8", errors="ignore"))
+        except ET.ParseError:
+            continue
+    raise ValueError("empty or invalid GMP response")
+
+
+def _severity_label_from_score(score: float) -> str:
+    if score >= 9.0:
+        return "critical"
+    if score >= 7.0:
+        return "high"
+    if score >= 4.0:
+        return "medium"
+    if score > 0:
+        return "low"
+    return "info"
+
+
+def _parse_gmp_report_findings(report_response: ET.Element, target: str) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for result in report_response.findall(".//result")[:30]:
+        severity_text = result.findtext("severity", default="0").strip()
+        try:
+            severity_score = float(severity_text)
+        except ValueError:
+            severity_score = 0.0
+        severity = _severity_label_from_score(severity_score)
+
+        nvt = result.find("nvt")
+        title = ""
+        cve = ""
+        reference = ""
+        if nvt is not None:
+            title = nvt.findtext("name", default="")
+            cve = nvt.findtext("cve", default="")
+            ref_node = nvt.find(".//ref")
+            if ref_node is not None:
+                reference = ref_node.attrib.get("id", "")
+
+        if not title:
+            title = result.findtext("name", default=f"OpenVAS finding on {target}")
+
+        port_text = result.findtext("port", default="").strip()
+        port = None
+        protocol = "tcp"
+        if "/" in port_text:
+            raw_port, raw_proto = port_text.split("/", 1)
+            if raw_port.isdigit():
+                port = int(raw_port)
+            protocol = raw_proto.strip() or "tcp"
+
+        findings.append(
+            {
+                "severity": severity,
+                "title": title[:255],
+                "cve": cve[:32],
+                "port": port,
+                "protocol": protocol[:16],
+                "recommendation": "Review Greenbone GMP report details and apply vendor remediation guidance.",
+                "reference": reference[:500],
+                "is_patch_available": severity in {"critical", "high"},
+                "metadata": {
+                    "source": "openvas_gmp",
+                    "severity_score": severity_score,
+                },
+            }
+        )
+
+    return findings
 
 
 def _fallback_openvas_findings(target: str, reason: str) -> list[dict[str, Any]]:
