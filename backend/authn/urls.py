@@ -5,6 +5,8 @@ from authn.views import (
     ApiKeyRevokeView,
     ApiKeyRotateView,
     BootstrapUserView,
+    JwtTokenObtainView,
+    JwtTokenRefreshView,
     OrganizationListView,
     ProfileView,
     TokenLoginView,
@@ -16,6 +18,8 @@ from authn.views import (
 urlpatterns = [
     path("bootstrap/", BootstrapUserView.as_view(), name="authn-bootstrap"),
     path("token/", TokenLoginView.as_view(), name="authn-token"),
+    path("jwt/", JwtTokenObtainView.as_view(), name="authn-jwt-token"),
+    path("jwt/refresh/", JwtTokenRefreshView.as_view(), name="authn-jwt-refresh"),
     path("profile/", ProfileView.as_view(), name="profile"),
     path("users/", UserListView.as_view(), name="users-list"),
     path("users/<str:username>/role/", UserRoleUpdateView.as_view(), name="users-role-update"),

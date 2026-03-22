@@ -5,6 +5,8 @@ from rest_framework.authtoken.models import Token
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from audit.models import AuditLog
 from authn.models import Organization, UserProfile
@@ -83,6 +85,33 @@ class TokenLoginView(ObtainAuthToken):
                 "role": profile.role if profile else "viewer",
             }
         )
+
+
+class RoleAwareTokenObtainPairSerializer(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        profile = UserProfile.objects.filter(username=user.username).first()
+        if profile:
+            token["role"] = profile.role
+            token["organization"] = profile.organization.name if profile.organization else ""
+        return token
+
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        profile = UserProfile.objects.filter(username=self.user.username).first()
+        data["username"] = self.user.username
+        data["role"] = profile.role if profile else "viewer"
+        data["organization"] = profile.organization.name if profile and profile.organization else None
+        return data
+
+
+class JwtTokenObtainView(TokenObtainPairView):
+    serializer_class = RoleAwareTokenObtainPairSerializer
+
+
+class JwtTokenRefreshView(TokenRefreshView):
+    pass
 
 
 class ProfileView(APIView):
