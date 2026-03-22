@@ -77,6 +77,13 @@ Security-first monorepo for the Tanzania Cyber Intelligence Observatory (TCIO).
   - `ACLED_EMAIL=...`
 - Without them, `abuseipdb`, `otx`, and `acled` collectors will remain at zero events.
 
+## AI Configuration (Gemini)
+- Add these to `.env` to enable Gemini-assisted regional risk adjustment in `ai-engine`:
+  - `GEMINI_API_KEY=...`
+  - `GEMINI_MODEL=gemini-2.0-flash`
+  - `GEMINI_TIMEOUT_SECONDS=45`
+- If `GEMINI_API_KEY` is empty, `ai-engine` falls back to deterministic scoring logic.
+
 ## Async Worker Pipeline
 - Celery + Redis now power background processing:
   - queued scan processing (`scans.process_queued_scan_jobs`)
@@ -179,3 +186,4 @@ Security-first monorepo for the Tanzania Cyber Intelligence Observatory (TCIO).
 - Scanning must remain authorization-gated.
 - No exploit functionality is included.
 - Mutation endpoints are protected with role checks (`owner/analyst/compliance`) and support local debug header: `X-Debug-Role`.
+- CI workflow is configured at `.github/workflows/ci.yml` (backend tests + frontend lint/build + contract compile/test).
