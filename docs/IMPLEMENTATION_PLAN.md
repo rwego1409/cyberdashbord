@@ -82,16 +82,25 @@
   - consumes `GEMINI_API_KEY`
   - applies bounded region-level risk-index adjustments
   - falls back to deterministic risk scoring when Gemini is unavailable
+- JWT auth flow implemented:
+  - `POST /api/v1/authn/jwt/`
+  - `POST /api/v1/authn/jwt/refresh/`
+  - profile endpoint supports JWT Bearer authentication
+- Compliance export integrity module implemented:
+  - optional HMAC signatures on exports (`signed=1`)
+  - immutable append-only export ledger (`immutable=1`)
+  - ledger verification endpoint (`GET /api/v1/reports/exports/ledger/`)
+- OpenVAS adapter extended with first-party GMP mode:
+  - direct GMP authentication and report retrieval path
+  - optional env configuration (`OPENVAS_GMP_*`)
+  - safe fallback to HTTP API mode and then synthetic fallback
 - Backend endpoint tests expanded for:
   - `alerts`
   - `analytics`
   - `audit`
+  - `authn` JWT flow
+  - signed immutable report exports
 - CI pipeline added for pull requests and pushes:
   - backend tests
   - frontend lint + production build
   - contracts compile + test
-
-## Next Coding Targets
-1. Add JWT-specific flow (currently TokenAuth + role checks are in place).
-2. Extend OpenVAS adapter with first-party Greenbone protocol client (if deployment has GMP access).
-3. Add signed report generation and immutable storage options for compliance exports.

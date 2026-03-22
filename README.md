@@ -84,6 +84,33 @@ Security-first monorepo for the Tanzania Cyber Intelligence Observatory (TCIO).
   - `GEMINI_TIMEOUT_SECONDS=45`
 - If `GEMINI_API_KEY` is empty, `ai-engine` falls back to deterministic scoring logic.
 
+## Auth Configuration (JWT)
+- JWT is enabled via DRF SimpleJWT.
+- Endpoints:
+  - `POST /api/v1/authn/jwt/`
+  - `POST /api/v1/authn/jwt/refresh/`
+- Optional env settings:
+  - `JWT_ACCESS_MINUTES=30`
+  - `JWT_REFRESH_DAYS=7`
+
+## Compliance Export Signing
+- Report exports support optional signing and immutable ledger persistence:
+  - `GET /api/v1/reports/export/?type=scan&format=json&signed=1`
+  - `GET /api/v1/reports/export/?type=scan&format=pdf&signed=1&immutable=1`
+  - `GET /api/v1/reports/exports/ledger/?limit=50`
+- Optional env settings:
+  - `REPORT_SIGNING_KEY=...`
+  - `REPORT_EXPORT_DIR=report_exports`
+
+## OpenVAS GMP Mode (Optional)
+- Scanner orchestrator supports direct Greenbone Management Protocol (GMP) mode when these are configured:
+  - `OPENVAS_GMP_HOST`
+  - `OPENVAS_GMP_PORT` (default `9390`)
+  - `OPENVAS_GMP_USERNAME`
+  - `OPENVAS_GMP_PASSWORD`
+  - `OPENVAS_GMP_TASK_ID`
+- If GMP is unavailable, orchestrator falls back to configured OpenVAS API mode, then synthetic fallback.
+
 ## Async Worker Pipeline
 - Celery + Redis now power background processing:
   - queued scan processing (`scans.process_queued_scan_jobs`)
@@ -106,6 +133,8 @@ Security-first monorepo for the Tanzania Cyber Intelligence Observatory (TCIO).
 - `GET /api/v1/authn/profile/`
 - `POST /api/v1/authn/bootstrap/`
 - `POST /api/v1/authn/token/`
+- `POST /api/v1/authn/jwt/`
+- `POST /api/v1/authn/jwt/refresh/`
 - `GET /api/v1/audit/logs/`
 - `GET /api/v1/osint/summary/`
 - `GET /api/v1/osint/sources-health/`
@@ -132,6 +161,7 @@ Security-first monorepo for the Tanzania Cyber Intelligence Observatory (TCIO).
 - `GET /api/v1/consent/status/`
 - `GET /api/v1/reports/summary/`
 - `GET /api/v1/reports/export/`
+- `GET /api/v1/reports/exports/ledger/`
 - `GET /api/v1/system/metrics/`
 - `GET /api/v1/authn/users/`
 - `POST /api/v1/authn/users/{username}/role/`
