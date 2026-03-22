@@ -8,6 +8,16 @@ from reportlab.pdfgen import canvas
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from common.permissions import IsOperatorOrDebugRole
+from reports.services import (
+    append_immutable_export_record,
+    canonical_json_bytes,
+    list_export_ledger,
+    parse_bool,
+    sha256_hex,
+    sign_hash,
+    verify_export_ledger,
+)
 from alerts.models import AlertEvent
 from analytics.models import RegionalRiskSnapshot
 from osint.models import ThreatEvent
@@ -161,6 +171,10 @@ class ReportExportView(APIView):
     def get(self, request):
         report_type = request.query_params.get("type", "scan")
         export_format = request.query_params.get("format", "json")
+        signed = parse_bool(request.query_params.get("signed"), default=False)
+        immutable = parse_bool(request.query_params.get("immutable"), default=False)
+        if immutable:
+            signed = True
 
         if report_type == "scan":
             payload = _scan_report_payload()
@@ -171,17 +185,81 @@ class ReportExportView(APIView):
         else:
             return Response({"detail": "Unsupported report type"}, status=400)
 
-        if export_format == "json":
-            return Response(payload)
-        if export_format == "csv":
-            csv_content = _to_csv(report_type, payload)
-            response = HttpResponse(csv_content, content_type="text/csv")
-            response["Content-Disposition"] = f'attachment; filename="{report_type}-report.csv"'
-            return response
-        if export_format == "pdf":
-            pdf_content = _to_pdf(report_type, payload)
-            response = HttpResponse(pdf_content, content_type="application/pdf")
-            response["Content-Disposition"] = f'attachment; filename="{report_type}-report.pdf"'
-            return response
+        artifact_bytes: bytes
+        content_type = "application/octet-stream"
+        file_name = f"{report_type}-report"
+        file_extension = export_format
 
-        return Response({"detail": "Unsupported export format"}, status=400)
+        if export_format == "json":
+            artifact_bytes = canonical_json_bytes(payload)
+            content_type = "application/json"
+            file_name = f"{file_name}.json"
+        elif export_format == "csv":
+            csv_content = _to_csv(report_type, payload)
+            artifact_bytes = csv_content.encode("utf-8")
+            content_type = "text/csv"
+            file_name = f"{file_name}.csv"
+        elif export_format == "pdf":
+            artifact_bytes = _to_pdf(report_type, payload)
+            content_type = "application/pdf"
+            file_name = f"{file_name}.pdf"
+        else:
+            return Response({"detail": "Unsupported export format"}, status=400)
+
+        signature_meta = None
+        if signed:
+            digest = sha256_hex(artifact_bytes)
+            signature = sign_hash(digest)
+            signature_meta = {
+                "sha256": digest,
+                "algorithm": "hmac-sha256",
+                "signature": signature,
+                "immutable": immutable,
+            }
+            if immutable:
+                ledger_entry = append_immutable_export_record(
+                    report_type=report_type,
+                    export_format=export_format,
+                    artifact_bytes=artifact_bytes,
+                    artifact_extension=file_extension,
+                    artifact_hash=digest,
+                    signature=signature,
+                )
+                signature_meta["ledger_entry_id"] = ledger_entry["id"]
+                signature_meta["chain_hash"] = ledger_entry["chain_hash"]
+
+        if export_format == "json":
+            if not signature_meta:
+                return Response(payload)
+            response = Response({"report": payload, "signature": signature_meta})
+        else:
+            response = HttpResponse(artifact_bytes, content_type=content_type)
+            response["Content-Disposition"] = f'attachment; filename="{file_name}"'
+
+        if signature_meta:
+            response["X-Report-SHA256"] = signature_meta["sha256"]
+            response["X-Report-Signature"] = signature_meta["signature"]
+            if signature_meta.get("ledger_entry_id"):
+                response["X-Report-Ledger-Entry"] = signature_meta["ledger_entry_id"]
+
+        return response
+
+
+class ReportExportLedgerView(APIView):
+    permission_classes = [IsOperatorOrDebugRole]
+
+    def get(self, request):
+        try:
+            limit = max(1, min(200, int(request.query_params.get("limit", 50))))
+        except ValueError:
+            limit = 50
+
+        entries = list_export_ledger(limit=limit)
+        integrity = verify_export_ledger(limit=limit)
+        return Response(
+            {
+                "count": len(entries),
+                "entries": entries,
+                "integrity": integrity,
+            }
+        )
