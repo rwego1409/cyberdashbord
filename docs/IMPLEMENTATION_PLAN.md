@@ -78,9 +78,20 @@
   - scanner-type authorization
   - consent scope/IP range enforcement
   - OSINT source-health response shape
+- Gemini-assisted AI analytics implemented in `ai-engine`:
+  - consumes `GEMINI_API_KEY`
+  - applies bounded region-level risk-index adjustments
+  - falls back to deterministic risk scoring when Gemini is unavailable
+- Backend endpoint tests expanded for:
+  - `alerts`
+  - `analytics`
+  - `audit`
+- CI pipeline added for pull requests and pushes:
+  - backend tests
+  - frontend lint + production build
+  - contracts compile + test
 
 ## Next Coding Targets
 1. Add JWT-specific flow (currently TokenAuth + role checks are in place).
 2. Extend OpenVAS adapter with first-party Greenbone protocol client (if deployment has GMP access).
-3. Add CI pipeline for automated test/lint/verification runs in pull requests.
-4. Add signed report generation and immutable storage options for compliance exports.
+3. Add signed report generation and immutable storage options for compliance exports.
