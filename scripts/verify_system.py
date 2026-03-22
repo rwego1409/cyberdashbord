@@ -22,6 +22,8 @@ class Verifier:
     debug_role: str
     results: list[CheckResult] = field(default_factory=list)
     token: str | None = None
+    jwt_access: str | None = None
+    jwt_refresh: str | None = None
     consent_id: str | None = None
     scan_job_id: int | None = None
 
@@ -39,6 +41,7 @@ class Verifier:
     def run(self) -> int:
         self.check_health()
         self.check_auth_bootstrap_and_token()
+        self.check_auth_jwt_flow()
         self.check_consent_create_and_list()
         self.check_scan_queue_and_process()
         self.check_scan_findings_and_progress()
@@ -90,6 +93,64 @@ class Verifier:
                 self.token = login_data.get("token")
             ok = boot.status_code in (200, 201) and login.status_code == 200 and bool(self.token)
             self._record(name, ok, f"bootstrap={boot.status_code} login={login.status_code}", {"bootstrap": boot_data, "login": login_data})
+        except Exception as exc:  # noqa: BLE001
+            self._record(name, False, str(exc))
+
+    def check_auth_jwt_flow(self) -> None:
+        name = "auth_jwt_flow"
+        if not self.token:
+            self._record(name, False, "missing bootstrap token before jwt check")
+            return
+        try:
+            profile = requests.get(
+                f"{self.base_url}/authn/profile/",
+                headers=self._headers(auth=True),
+                timeout=20,
+            )
+            profile_data = profile.json()
+            username = profile_data.get("user")
+            if not username or username == "anonymous":
+                self._record(name, False, "unable to determine username from profile", profile_data)
+                return
+
+            jwt = requests.post(
+                f"{self.base_url}/authn/jwt/",
+                json={"username": username, "password": "Verify123!"},
+                timeout=20,
+            )
+            jwt_data = jwt.json()
+            self.jwt_access = jwt_data.get("access")
+            self.jwt_refresh = jwt_data.get("refresh")
+
+            jwt_profile = requests.get(
+                f"{self.base_url}/authn/profile/",
+                headers={"Authorization": f"Bearer {self.jwt_access}"} if self.jwt_access else {},
+                timeout=20,
+            )
+            jwt_profile_data = jwt_profile.json()
+
+            refresh = requests.post(
+                f"{self.base_url}/authn/jwt/refresh/",
+                json={"refresh": self.jwt_refresh},
+                timeout=20,
+            )
+            refresh_data = refresh.json()
+
+            ok = (
+                jwt.status_code == 200
+                and bool(self.jwt_access)
+                and bool(self.jwt_refresh)
+                and jwt_profile.status_code == 200
+                and jwt_profile_data.get("status") == "authenticated"
+                and refresh.status_code == 200
+                and bool(refresh_data.get("access"))
+            )
+            self._record(
+                name,
+                ok,
+                f"jwt={jwt.status_code} profile={jwt_profile.status_code} refresh={refresh.status_code}",
+                {"jwt": jwt_data, "profile": jwt_profile_data, "refresh": refresh_data},
+            )
         except Exception as exc:  # noqa: BLE001
             self._record(name, False, str(exc))
 
@@ -297,18 +358,36 @@ class Verifier:
             json_export = requests.get(f"{self.base_url}/reports/export/?type=scan&format=json", timeout=20)
             csv_export = requests.get(f"{self.base_url}/reports/export/?type=scan&format=csv", timeout=20)
             pdf_export = requests.get(f"{self.base_url}/reports/export/?type=scan&format=pdf", timeout=20)
+            signed_json = requests.get(
+                f"{self.base_url}/reports/export/?type=scan&format=json&signed=1&immutable=1",
+                timeout=20,
+            )
+            signed_payload = signed_json.json() if signed_json.status_code == 200 else {}
+            ledger = requests.get(
+                f"{self.base_url}/reports/exports/ledger/?limit=10",
+                headers=self._headers(debug=True),
+                timeout=20,
+            )
+            ledger_data = ledger.json() if ledger.status_code == 200 else {}
             ok = (
                 summary.status_code == 200
                 and json_export.status_code == 200
                 and csv_export.status_code == 200
                 and pdf_export.status_code == 200
+                and signed_json.status_code == 200
+                and "signature" in signed_payload
+                and ledger.status_code == 200
+                and ledger_data.get("integrity", {}).get("ok") is True
                 and "scan_report" in summary_data
             )
             self._record(
                 name,
                 ok,
-                f"summary={summary.status_code} json={json_export.status_code} csv={csv_export.status_code} pdf={pdf_export.status_code}",
-                {"summary": summary_data},
+                (
+                    f"summary={summary.status_code} json={json_export.status_code} csv={csv_export.status_code} "
+                    f"pdf={pdf_export.status_code} signed={signed_json.status_code} ledger={ledger.status_code}"
+                ),
+                {"summary": summary_data, "signed": signed_payload, "ledger": ledger_data},
             )
         except Exception as exc:  # noqa: BLE001
             self._record(name, False, str(exc))
