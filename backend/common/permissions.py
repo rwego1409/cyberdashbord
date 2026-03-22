@@ -15,7 +15,10 @@ class IsOperatorOrDebugRole(BasePermission):
             if profile and profile.role in self.allowed_roles:
                 return True
 
-        allow_debug_header = os.getenv("ENABLE_DEBUG_ROLE_HEADER", "true").lower() == "true"
+        # Keep debug-header auth enabled by default only in Django debug mode.
+        debug_mode = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
+        default_debug_header = "true" if debug_mode else "false"
+        allow_debug_header = os.getenv("ENABLE_DEBUG_ROLE_HEADER", default_debug_header).lower() == "true"
         if not allow_debug_header:
             return False
 
